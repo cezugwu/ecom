@@ -192,7 +192,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOW_ALL_ORIGINS = True
 
 DEBUG = os.environ.get("DEBUG", "False").lower() == True
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS").split("  ")
+ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split()
 SECRET_KEY = os.environ.get("SECRET_KEY")
 FLUTTER_SECRET_KEY = 'FLWSECK_TEST-701d000946a2e1458101c3c3fd665b4f-X'
 
