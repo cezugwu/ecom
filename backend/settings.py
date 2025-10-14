@@ -193,7 +193,12 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 DEBUG = os.environ.get("DEBUG", "False").lower() == True
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split()
-SECRET_KEY = os.environ.get("SECRET_KEY")
+
+SECRET_KEY = os.environ.get(
+    "SECRET_KEY",
+    "django-insecure-6t#jk&87j@92$*ts&b-mjw&$8!5qrczyr)u*jv+qm)&sj6_5y6"
+)
+
 FLUTTER_SECRET_KEY = 'FLWSECK_TEST-701d000946a2e1458101c3c3fd665b4f-X'
 
 PAYSTACK_SECRET_KEY = 'sk_test_56d554a2402c9bbccaf49c0c1c1a8ae90dd85820'
