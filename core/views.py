@@ -3,449 +3,510 @@ from django.contrib.auth.hashers import make_password
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .models import Product, Cart, CartItem, TransactionFlutter, TransactionPaystack, Shipping, Country
-from .serializer import ProductSerializer, CartItemSerializer, CartSerializer, UserSerializer, ShippingSerializer, CountrySerializer
-from django.contrib.auth.models import User
+from .models import Product, Cart, CartItem, TransactionFlutter, TransactionPaystack, Shipping, Country, Ship, Order
+from .serializer import ProductSerializer, CartItemSerializer, CartSerializer, ShippingSerializer, UserSignUpSerializer, ShipSerializer
 import uuid
 from decimal import Decimal
 from django.conf import settings
 import requests
 from rest_framework import status
 from .filters import SearchProductFilter
+from django.conf import settings
 
-#non users
-@api_view(['GET'])
-def getcountry(request):
-    country_name = request.GET.get('country_name')
-    country = get_object_or_404(Country, country=country_name)
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
-    serializer = CountrySerializer(country)
-    return Response(serializer.data)
+@api_view(['POST'])
+def signup(request):
+    serializer = UserSignUpSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response({'message':'user created'})
+    return Response({'error':serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['GET'])
 def products(request):
-    product = Product.objects.all()
+    qs = Product.objects.all()
 
-    serializer = ProductSerializer(product, many=True)
-    return Response(serializer.data)
+    # Filter by category
+    category = request.GET.get('category')
+    if category:
+        qs = qs.filter(category__icontains=category)
 
-@api_view(['GET'])
-def searchproducts(request):
-    product_filter = SearchProductFilter(request.GET, queryset=Product.objects.all())
-    product = product_filter.qs
+    # Search by title
+    search = request.GET.get('search')
+    if search:
+        qs = qs.filter(title__icontains=search)
 
-    serializer = ProductSerializer(product, many=True)
+    serializer = ProductSerializer(qs, many=True)
     return Response(serializer.data)
 
 @api_view(['GET'])
 def product(request, slug):
     product = get_object_or_404(Product, slug=slug)
     serializer = ProductSerializer(product)
-
     return Response(serializer.data)
-
-@api_view(['POST'])
-def add(request):
-    cart_code = request.data.get('cart_code')
-    product_id = request.data.get('product_id')
-
-    cart, created = Cart.objects.get_or_create(cart_code=cart_code, paid=False)
-    product = get_object_or_404(Product, id=product_id)
-    cartitem, created = CartItem.objects.get_or_create(cart=cart, product=product)
-    cartitem.quantity += 1
-    cartitem.save()
-
-    serializer = CartItemSerializer(cartitem)
-    return Response(serializer.data)
-
-@api_view(['POST'])
-def update(request):
-    cart_code = request.data.get('cart_code')
-    product_id = request.data.get('product_id')
-    action = request.data.get('action')
-
-    cart = get_object_or_404(Cart, cart_code=cart_code, paid=False)
-    product = get_object_or_404(Product, id=product_id)
-    cartitem, created = CartItem.objects.get_or_create(cart=cart, product=product)
-
-    if action == 'add':
-        cartitem.quantity += 1
-        cartitem.save()
-
-    elif action == 'minus':
-        if cartitem.quantity > 1:
-            cartitem.quantity -= 1
-            cartitem.save() 
-        else:
-            cartitem.delete()
-            
-    elif action == 'remove':
-        cartitem.delete()
-    
-    serializer = CartItemSerializer(cartitem)
-    return Response(serializer.data)
-
 
 @api_view(['GET'])
-def cart(request):
-    cart_code = request.GET.get('cart_code')
-    cart = get_object_or_404(Cart, cart_code=cart_code, paid=False)
+def cartitem(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.GET.get('session_id')
+
+    try:
+        if user:
+            cart, _ = Cart.objects.get_or_create(user=user, session_id=None, paid=False)
+        else:
+            if not session_id:
+                return Response({'message': 'session_id is not provided'})
+            cart, _ = Cart.objects.get_or_create(user=None, session_id=session_id, paid=False)
+    except Cart.DoesNotExist():
+        return Response({'error':'cart does not exist'})
+    
     serializer = CartSerializer(cart)
     return Response(serializer.data)
 
 @api_view(['POST'])
-def deleteitem(request):
-    cart_code = request.data.get('cart_code')
+def cartadd(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.data.get('session_id')
+    slug = request.data.get('slug')
+    quantity = int(request.data.get('quantity', 1))
+    action = request.data.get('action', '')
 
-    cart = get_object_or_404(Cart, cart_code=cart_code, paid=False)
-    cartitem = CartItem.objects.filter(cart=cart)
+    try:
+        if user:
+            cart, _ = Cart.objects.get_or_create(user=user, session_id=None, paid=False)
+        else:
+            if not session_id:
+                return Response({'message': 'session_id is not provided'})
+            cart, _ = Cart.objects.get_or_create(user=None, session_id=session_id, paid=False)
+    except Cart.DoesNotExist():
+        return Response({'error':'cart does not exist'})
 
-    cartitem.delete()
+    product = get_object_or_404(Product, slug=slug)
+    cartitem, created = CartItem.objects.get_or_create(
+        cart=cart,
+        product=product,
+        defaults={'quantity': quantity}
+    )
 
-    return Response({'message':'cart item deleted successfully'})
-
-#users
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def deleteitemu(request):
-    username = request.data.get('username')
-    user = get_object_or_404(User, username=username)
-
-    cart = get_object_or_404(Cart, user=user, paid=False)
-    cartitem = CartItem.objects.filter(cart=cart)
-
-    cartitem.delete()
-
-    return Response({'message':'cart item deleted successfully'})
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def addu(request):
-    username = request.data.get('username')
-    user = get_object_or_404(User, username=username)
-    product_id = request.data.get('product_id')
-
-    cart, created = Cart.objects.get_or_create(user=user, paid=False)
-    product = get_object_or_404(Product, id=product_id)
-    cartitem, created = CartItem.objects.get_or_create(cart=cart, product=product)
-    cartitem.quantity += 1
-    cartitem.save()
-
+    if not created:
+        if action:
+            cartitem.quantity = quantity
+        else:
+            cartitem.quantity += quantity
+        cartitem.save()
+        
     serializer = CartItemSerializer(cartitem)
     return Response(serializer.data)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def updateu(request):
-    username = request.data.get('username')
-    user = get_object_or_404(User, username=username)
-    product_id = request.data.get('product_id')
-    action = request.data.get('action')
+def cartremove(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.data.get('session_id')
+    slug = request.data.get('slug')
+    quantity = int(request.data.get('quantity', 1))
 
-    cart = get_object_or_404(Cart, user=user, paid=False)
-    product = get_object_or_404(Product, id=product_id)
-    cartitem, created = CartItem.objects.get_or_create(cart=cart, product=product)
+    try:
+        if user:
+            cart, _ = Cart.objects.get_or_create(user=user, session_id=None, paid=False)
+        else:
+            if not session_id:
+                return Response({'message': 'session_id is not provided'})
+            cart, _ = Cart.objects.get_or_create(user=None, session_id=session_id, paid=False)
+    except Cart.DoesNotExist():
+        return Response({'error':'cart does not exist'})
 
-    if action == 'add':
-        cartitem.quantity += 1
-        cartitem.save()
+    product = get_object_or_404(Product, slug=slug)
+    cartitem = CartItem.objects.get(
+        cart=cart,
+        product=product,
+    )
 
-    elif action == 'minus':
+    if cartitem.quantity:
         if cartitem.quantity > 1:
-            cartitem.quantity -= 1
-            cartitem.save() 
+            cartitem.quantity -= quantity
+            cartitem.save()
         else:
             cartitem.delete()
-            
-    elif action == 'remove':
+    else:
         cartitem.delete()
-    
-    serializer = CartItemSerializer(cartitem)
-    return Response(serializer.data)
 
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def cartu(request):
-    username = request.GET.get('username')
-    user = get_object_or_404(User, username=username)
-    cart = get_object_or_404(Cart, user=user, paid=False)
-    serializer = CartSerializer(cart)
-    return Response(serializer.data)
+    return Response({'message':'cartitem updated'})
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def append(request):
-    products = request.data.get('products', [])
-    username = request.data.get('username')
-    user = get_object_or_404(User, username=username)
-    cart, created = Cart.objects.get_or_create(user=user, paid=False)
-    for item in products:
-        product_id = item.get('id')
-        quantity = item.get('quantity')
+def cartdelete(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.data.get('session_id')
+    slug = request.data.get('slug')
 
-        product = get_object_or_404(Product, id=product_id)
-        cartitem, created = CartItem.objects.get_or_create(cart=cart, product=product)
+    try:
+        if user:
+            cart, _ = Cart.objects.get_or_create(user=user, session_id=None, paid=False)
+        else:
+            if not session_id:
+                return Response({'message': 'session_id is not provided'})
+            cart, _ = Cart.objects.get_or_create(user=None, session_id=session_id, paid=False)
+    except Cart.DoesNotExist():
+        return Response({'error':'cart does not exist'})
 
-        cartitem.quantity = quantity
-        cartitem.save()
-    serializer = CartItemSerializer(cartitem)
-    return Response(serializer.data)
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def getuser(request):
-    username = request.GET.get('username')
-    user = get_object_or_404(User, username=username)
-
-    serializer = UserSerializer(user)
-    return Response(serializer.data)
-
-@api_view(['POST'])
-def signup(request):
-    username = request.data.get('username')
-    first_name = request.data.get('first_name')
-    last_name = request.data.get('last_name')
-    email = request.data.get('email')
-    password1 = request.data.get('password1')
-    password2 = request.data.get('password2')
-
-    if password1 != password2:
-        return Response({'message':'password mismatch'})
-    
-    if User.objects.filter(username=username).exists():
-        return Response({'message':'user with the username already exist'})
-    
-    user, created = User.objects.get_or_create(
-        username=username,
-        first_name=first_name,
-        last_name=last_name,
-        email=email,
-        password=make_password(password1),
+    product = get_object_or_404(Product, slug=slug)
+    cartitem = CartItem.objects.get(
+        cart=cart,
+        product=product,
     )
-
-    return Response({'message':'user created successfully'})
+    cartitem.delete()
+    
+    return Response({'message':'cartitem deleted'})
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def shipinfo(request):
-    address = request.data.get('address')
-    city = request.data.get('city')
-    state = request.data.get('state')
-    zip_code = request.data.get('zip_code')
-    phone = request.data.get('phone')
-    username = request.data.get('username')
-    country = request.data.get('country')
-    phone_code = request.data.get('phone_code')
-    contact_name = request.data.get('contact_name')
-    user = get_object_or_404(User, username=username)
+def cartclear(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.data.get('session_id')
 
-    if Shipping.objects.filter(user=user).exists():
-        return Response({'message':'your shipping infor already exist go to settings to change it'})
-    
-    shipping, created = Shipping.objects.get_or_create(
-        user=user,
-        address=address,
-        city=city,
-        state=state,
-        zip_code=zip_code,
-        phone=phone,
-        country=country,
-        phone_code=phone_code,
-        contact_name = contact_name,
+    try:
+        if user:
+            cart, _ = Cart.objects.get_or_create(user=user, session_id=None, paid=False)
+        else:
+            if not session_id:
+                return Response({'message': 'session_id is not provided'})
+            cart, _ = Cart.objects.get_or_create(user=None, session_id=session_id, paid=False)
+    except Cart.DoesNotExist():
+        return Response({'error':'cart does not exist'})
+
+    cartitem = CartItem.objects.filter(
+        cart=cart,
     )
+    cartitem.delete()
+    
+    return Response({'message':'all cartitem deleted'})
 
-    return Response({'shiping':'created succesfully'})
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def getship(request):
-    username = request.GET.get('username')
-    user = get_object_or_404(User, username=username)
-    shipping = get_object_or_404(Shipping, user=user)
+def ship(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.GET.get('session_id')
+
+    try:
+        if user:
+            ship, _ = Ship.objects.get_or_create(user=user, session_id=None)
+        else:
+            if not session_id:
+                return Response({'message': 'session_id is not provided'})
+            ship, _ = Ship.objects.get_or_create(user=None, session_id=session_id)
+    except Ship.DoesNotExist():
+        return Response({'error':'ship does not exist'})
+    
+    serializer = ShipSerializer(ship)
+    return Response(serializer.data)
+
+@api_view(['GET'])
+def shippingcurrent(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.GET.get('session_id')
+
+    if user:
+        ship, _ = Ship.objects.get_or_create(user=user, session_id=None)
+    else:
+        if not session_id:
+            return Response({'error': 'session_id is required'}, status=400)
+        ship, _ = Ship.objects.get_or_create(user=None, session_id=session_id)
+
+    shipping = Shipping.objects.filter(ship=ship, selected=True).first()
+
+    if not shipping:
+        return Response({'message': 'No selected shipping found'}, status=404)
 
     serializer = ShippingSerializer(shipping)
-    return Response(serializer.data)
+    return Response(serializer.data, status=200)
 
+@api_view(['GET'])
+def shippingid(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.GET.get('session_id')
+    shipping_id = request.GET.get('shipping_id')
 
-@api_view(['PUT'])
-@permission_classes([IsAuthenticated])
-def updateshipinfo(request):
-    address = request.data.get('address')
-    city = request.data.get('city')
-    state = request.data.get('state')
-    zip_code = request.data.get('zip_code')
-    phone = request.data.get('phone')
-    country = request.data.get('country')
-    phone_code = request.data.get('phone_code')
-    contact_name = request.data.get('contact_name')
-    username = request.user.username 
-    
+    if user:
+        ship, _ = Ship.objects.get_or_create(user=user, session_id=None)
+    else:
+        if not session_id:
+            return Response({'error': 'session_id is required'}, status=400)
+        ship, _ = Ship.objects.get_or_create(user=None, session_id=session_id)
 
-    user = get_object_or_404(User, username=username)
+    shipping = Shipping.objects.get(ship=ship, id=shipping_id)
 
-    shipping, created = Shipping.objects.get_or_create(user=user)
+    if not shipping:
+        return Response({'message': 'No selected shipping found'}, status=404)
 
-    shipping.address = address if address else shipping.address
-    shipping.city = city if city else shipping.city
-    shipping.state = state if state else shipping.state
-    shipping.zip_code = zip_code if zip_code else shipping.zip_code
-    shipping.phone = phone if phone else shipping.phone
-    shipping.country = country if country else shipping.country
-    shipping.phone_code = phone_code if phone_code else shipping.phone_code
-    shipping.contact_name = contact_name if contact_name else shipping.contact_name
-    shipping.save()
-
-    return Response({'message': 'Shipping info updated successfully'})
-
-    
+    serializer = ShippingSerializer(shipping)
+    return Response(serializer.data, status=200)
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def createcartu(request):
-    username = request.data.get('username')
-    user = get_object_or_404(User, username=username)
+def shipping(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.data.get('session_id')
+    serializer = ShippingSerializer(data=request.data)
 
-    cart, created = Cart.objects.get_or_create(user=user, paid=False)
+    if serializer.is_valid():
+        if user:
+            ship, _ = Ship.objects.get_or_create(user=user, session_id=None)
+        else:
+            if not session_id:
+                return Response({'error': 'session_id is required'}, status=400)
+            ship, _ = Ship.objects.get_or_create(user=None, session_id=session_id)
 
-    serializer = CartSerializer(cart)
-    return Response(serializer.data)
-
-
-#complicated non user
-@api_view(['POST'])
-def createcart(request):
-    cart_code = request.data.get('cart_code')
-
-    cart, created = Cart.objects.get_or_create(cart_code=cart_code, paid=False)
-
-    serializer = CartSerializer(cart)
-    return Response(serializer.data)
-
-@api_view(['POST'])
-def deletecart(request):
-    cart_code = request.data.get('cart_code')
-
-    cart, created = Cart.objects.get_or_create(cart_code=cart_code, paid=False)
-    cart.delete()
-
-    return Response({'message':'cart deleted'})
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def flutter(request):
-    try:
-        username = request.data.get('username')
-
-        user = get_object_or_404(User, username=username)
-        
-        tx_ref = str(uuid.uuid4())
-        currency = 'NGN'
-        redirect_url = 'http://localhost:3000/pending'
-        tax = Decimal('4.00')
-
-        cart = get_object_or_404(Cart, user=user, paid=False)
-
-        amount = sum([(item.quantity * item.product.price) for item in cart.cartitem.all()])
-        total_amount = amount + tax
-
-        transaction = TransactionFlutter.objects.create(
-            cart=cart,
-            user=user,
-            tx_ref=tx_ref,
-            currency=currency,
-            amount=total_amount,
+        shipping = Shipping.objects.create(
+            ship=ship,
+            **serializer.validated_data 
         )
+        default = str(request.data.get("default")).lower() == "true"
 
-        flutterwave_payload = {
-            'tx_ref': tx_ref,
-            'amount': float(total_amount),
-            'currency': currency,
-            'redirect_url': redirect_url,
-            'customer': {
-                'email': user.email,
-                'username': user.username,
-            },
-            'customizations': {
-                'title': 'EMK-Xpress',
-            },
-        }
+        if default:
+            shipping.default = True
+        shipping.selected = True
+        shipping.save()
 
-        headers = {
-            'Authorization': f'Bearer {settings.FLUTTER_SECRET_KEY}',
-            'Content-Type': 'application/json',
-        }
+        return Response(ShippingSerializer(shipping).data, status=201)
+    
+    return Response(serializer.errors, status=400)
 
+@api_view(['PUT', 'PATCH'])
+def shippingupdate(request):
+    user = request.user if request.user.is_authenticated else None
+    shipping_id = request.data.get('shipping_id')
+    session_id = request.data.get('session_id')
+
+    if not shipping_id:
+        return Response({'error': 'shipping_id is required'}, status=400)
+
+    if user:
+        ship, _ = Ship.objects.get_or_create(user=user, session_id=None)
+    else:
+        if not session_id:
+            return Response({'error': 'session_id is required'}, status=400)
+        ship, _ = Ship.objects.get_or_create(user=None, session_id=session_id)
+
+    try:
+        shipping = Shipping.objects.get(id=shipping_id, ship=ship)
+    except Shipping.DoesNotExist:
+        return Response({'error': 'Shipping not found'}, status=404)
+
+    serializer = ShippingSerializer(shipping, data=request.data, partial=True)
+
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=200)
+
+    return Response(serializer.errors, status=400)
+
+@api_view(['PUT', 'PATCH'])
+def shippingtrue(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.data.get('session_id')
+    shipping_id = request.data.get('shipping_id')
+    default = request.data.get('default')
+
+    if not shipping_id:
+        return Response({'error': 'shipping_id is required'}, status=400)
+
+    if user:
+        ship, _ = Ship.objects.get_or_create(user=user, session_id=None)
+    else:
+        if not session_id:
+            return Response({'error': 'session_id is required'}, status=400)
+        ship, _ = Ship.objects.get_or_create(user=None, session_id=session_id)
+
+    try:
+        shipping = Shipping.objects.get(id=shipping_id, ship=ship)
+        if default:
+            shipping.default = True
+        else:
+            shipping.selected = True
+        shipping.save()
+    except Shipping.DoesNotExist:
+        return Response({'error': 'Shipping not found'}, status=404)
+
+    serializer = ShippingSerializer(shipping)
+    return Response(serializer.data, status=200)
+
+@api_view(['POST'])
+def flutter(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.data.get('session_id')
+
+    tx_ref = str(uuid.uuid4())
+    currency = 'NGN'
+    redirect_url = 'http://localhost:3000#/pending'
+    tax = Decimal('4.00')
+
+    # ✅ Get or create cart
+    if user:
+        cart, _ = Cart.objects.get_or_create(user=user, session_id=None, paid=False)
+        ship, _ = Ship.objects.get_or_create(user=user, session_id=None)
+    else:
+        if not session_id:
+            return Response({'error': 'session_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        cart, _ = Cart.objects.get_or_create(user=None, session_id=session_id, paid=False)
+        ship, _ = Ship.objects.get_or_create(user=None, session_id=session_id)
+
+    # ✅ Calculate total
+    amount = sum([(item.quantity * item.product.price) for item in cart.cartitem.all()])
+    total_amount = amount + tax
+
+    # ✅ Create transaction record
+    shipping = Shipping.objects.get(ship=ship, selected=True)
+    
+    customer = {}
+    customer = {'email': f'{shipping.email if shipping.email else ''}', 'name': f'{shipping.name if shipping.name else ''}'} 
+
+    flutterwave_payload = {
+        'tx_ref': tx_ref,
+        'amount': float(total_amount),
+        'currency': currency,
+        'redirect_url': redirect_url,
+        'customer': customer,
+        'customizations': {
+            'title': 'EMK-Xpress',
+            'logo': 'https://yourdomain.com/static/logo.png'
+        },
+    }
+
+    headers = {
+        'Authorization': f'Bearer {settings.FLUTTER_SECRET_KEY}',
+        'Content-Type': 'application/json',
+    }
+    print('what')
+
+    try:
         response = requests.post(
             'https://api.flutterwave.com/v3/payments',
             json=flutterwave_payload,
-            headers=headers
+            headers=headers,
+            timeout=10
         )
-            
-        if response.status_code == 200:
-            return Response(response.json(), status=status.HTTP_200_OK)
-        else:
-            return Response(response.json(), status=status.HTTP_400_BAD_REQUEST)
+        
+        response_data = response.json()
+        link = response_data.get('data', {}).get('link')
+        if link:
+            transaction = TransactionFlutter.objects.create(
+                cart=cart,
+                tx_ref=tx_ref,
+                link=link,
+                currency=currency,
+                amount=total_amount,
+            )
 
-    except requests.exceptions.RequestException as e:
+    except requests.RequestException as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
 
+    if response.status_code in [200, 201]:
+        return Response(response_data, status=status.HTTP_200_OK)
+    else:
+        return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
 def fluttercall(request):
-    status = request.data.get('status')
     tx_ref = request.data.get('tx_ref')
     transaction_id = request.data.get('transaction_id')
+    payment_status = request.data.get('status')
 
-    if status == 'completed':
-        headers = {
-            'Authorization': f'Bearer {settings.FLUTTER_SECRET_KEY}',
-        }
+    # ✅ Quick validation
+    if not all([tx_ref, transaction_id, payment_status]):
+        return Response({'message': 'Missing required fields'}, status=status.HTTP_400_BAD_REQUEST)
 
-        response = requests.get(
-            f'https://api.flutterwave.com/v3/transactions/{transaction_id}/verify',
-            headers=headers
+    if payment_status != 'completed':
+        return Response({'message': 'Payment not completed'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # ✅ Verify payment from Flutterwave
+    headers = {'Authorization': f'Bearer {settings.FLUTTER_SECRET_KEY}'}
+    verify_url = f'https://api.flutterwave.com/v3/transactions/{transaction_id}/verify'
+
+    try:
+        response = requests.get(verify_url, headers=headers, timeout=10)
+        data = response.json()
+    except requests.RequestException as e:
+        return Response({'message': f'Network error: {e}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+    # ✅ Check Flutterwave response
+    if data.get('status') != 'success':
+        return Response({'message': 'Failed to verify transaction with Flutterwave'}, status=status.HTTP_400_BAD_REQUEST)
+
+    transaction_data = data.get('data', {})
+    transaction = get_object_or_404(TransactionFlutter, tx_ref=tx_ref)
+
+    # ✅ Validate payment details
+    if (
+        transaction_data.get('status') == 'successful' and
+        float(transaction_data.get('amount', 0)) == float(transaction.amount) and
+        transaction_data.get('currency') == transaction.currency
+    ):
+        # Mark transaction as completed
+        transaction.status = 'completed'
+        transaction.transaction_id = transaction_id
+        transaction.save(update_fields=['status', 'transaction_id'])
+
+        cart = transaction.cart
+        cart.paid = True
+        cart.save(update_fields=['paid'])
+
+        # ✅ Fetch the selected shipping info
+        if cart.user:
+            ship = Ship.objects.filter(user=cart.user).first()
+        else:
+            ship = Ship.objects.filter(session_id=cart.session_id).first()
+
+        shipping = Shipping.objects.filter(ship=ship, selected=True).first()
+
+        # ✅ Prepare products data
+        products = [
+            {
+                "id": item.product.id,
+                "name": item.product.title,
+                "price": float(item.product.price),
+                "quantity": item.quantity,
+            }
+            for item in cart.cartitem.all()
+        ]
+
+        # ✅ Create the Order record
+        order, created = Order.objects.get_or_create(
+            tx_ref=tx_ref,
+            defaults={
+                'user': cart.user,
+                'session_id': cart.session_id,
+                'full_name': shipping.name,
+                'email': shipping.email,
+                'phone': shipping.phone,
+                'address': shipping.address,
+                'city': shipping.city,
+                'state': shipping.state,
+                'zip_code': shipping.zip_code,
+                'country': shipping.country,
+                'products': products,
+                'total_amount': cart.get_total_price(),
+                'transaction_id': transaction_id,
+                'payment_status': 'completed'
+            }
         )
 
-        data = response.json() 
-        if data['status'] == 'success':
-            transaction = get_object_or_404(TransactionFlutter, tx_ref=tx_ref)
-
-            if (
-                data['data']['status'] == 'successful' and
-                float(data['data']['amount']) == float(transaction.amount) and
-                data['data']['currency'] == transaction.currency
-            ):
-                transaction.status = 'completed'
-                transaction.transaction_id = transaction_id
-                transaction.save()
-
-                cart = transaction.cart
-                cart.paid = True
-                cart.save()
-
-                return Response({
-                    'message': 'Payment successful',
-                    'submessage': 'You have successfully made a payment'
-                }, status=200)
-
-            else:
-                return Response({
-                    'message': 'Payment verification failed',
-                    'submessage': 'We could not verify your payment yet'
-                }, status=400)
-
-        else:
+        if not created:
             return Response({
-                'message': 'Failed to verify transaction with Flutterwave'
-            }, status=400)
-    else:
-        return Response({'message': 'Payment was not successful'}, status=400)
-    
+                'message': 'Order already exists',
+                'submessage': 'This payment has already been processed.'
+            }, status=status.HTTP_200_OK)
+
+
+
+        return Response({
+            'message': 'Payment successful',
+            'submessage': 'Your order has been saved successfully.'
+        }, status=status.HTTP_200_OK)
+
+    return Response({
+        'message': 'Payment verification failed',
+        'submessage': 'We could not verify your payment yet'
+    }, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
 def paystack(request):
@@ -491,7 +552,6 @@ def paystack(request):
     except Exception as exception:
         return Response({'error': str(exception)}, status=400)
     
-
 @api_view(['POST'])
 def vpaystack(request):
     try:

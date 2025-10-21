@@ -6,7 +6,7 @@ class SearchProductFilter(django_filters.FilterSet):
     class Meta:
         model = Product
         fields = {
-            'name': ['iexact', 'icontains'],
+            'title': ['iexact', 'icontains'],
             'price': ['exact', 'lt', 'gt', 'range'],
             'category': ['iexact', 'icontains'],
         }

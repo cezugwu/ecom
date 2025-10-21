@@ -2,34 +2,27 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path('products/', views.products),
-    path('country/', views.getcountry),
-    path('search/', views.searchproducts),
-    path('product/<slug:slug>', views.product),
-    path('add/', views.add),
-    path('update/', views.update),
-    path('cart/', views.cart),
-    path('deleteitem/', views.deleteitem),
+    path('product/', views.products, name='product'),
+    path('product/<slug:slug>', views.product, name='productslug'),
+    path('cart/', views.cartitem, name='cartitem'),
+    path('add/', views.cartadd, name='cartadd'),
+    path('remove/', views.cartremove, name='cartremove'),
+    path('delete/', views.cartdelete, name='cartdelete'),
+    path('clear/', views.cartclear, name='cartclear'),
 
-    path('deleteitemu/', views.deleteitemu),
-    path('addu/', views.addu),
-    path('updateu/', views.updateu),
-    path('cartu/', views.cartu),
-    path('append/', views.append),
-    path('getuser/', views.getuser),
     path('signup/', views.signup),
 
-    path('createcartu/', views.createcartu),
 
-    path('createcart/', views.createcart),
-    path('deletecart/', views.deletecart), 
-
-    path('shipinfo/', views.shipinfo),
-    path('updateshipinfo/', views.updateshipinfo),
-    path('getship/', views.getship),
+    path('shippingid/', views.shippingid, name='shippingid'),
+    path('shippingtrue/', views.shippingtrue, name='shippingtrue'),
+    path('shippingupdate/', views.shippingupdate, name='shippingupdate'),
+    path('shippingcurrent/', views.shippingcurrent, name='shippingcurrent'),
+    path('ship/', views.ship, name='ship'),
+    path('shipping/', views.shipping, name='shipping'),
 
     path('flutter/', views.flutter),
     path('fluttercall/', views.fluttercall),
     path('paystack/', views.paystack),
     path('vpaystack/',views.vpaystack),
 ]
+

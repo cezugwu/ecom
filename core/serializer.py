@@ -1,75 +1,70 @@
 from rest_framework import serializers
-from .models import Product, Cart, CartItem, Shipping, Country
-from django.contrib.auth.models import User
+from .models import Product, Cart, CartItem, Shipping, Country, Ship
+from django.contrib.auth import get_user_model
 
+User = get_user_model()
 
+class UserSignUpSerializer(serializers.ModelSerializer):
+    password1 = serializers.CharField(write_only=True)
+    password2 = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'password1', 'password2']
+
+    def validate(self, attrs):
+        if attrs.get("password1") != attrs.get("password2"):
+            raise serializers.ValidationError({'error':'password does not match'})
+        if User.objects.filter(username=attrs.get("username")).exists():
+            raise serializers.ValidationError({'error':'user with username exists'})
+        return attrs
+    
+    def create(self, validated_data):
+        user = User.objects.create_user(
+            username=validated_data["username"],
+            email=validated_data["email"],
+            password=validated_data["password1"],
+        )
+        return user
+    
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
-        fields = ['id', 'name', 'slug', 'image', 'price', 'category', 'description']
+        fields = ['id', 'title', 'slug', 'image', 'price', 'category', 'description']
 
 
 class CartItemSerializer(serializers.ModelSerializer):
     product = ProductSerializer(read_only=True)
-    price_total = serializers.SerializerMethodField()
     class Meta:
         model = CartItem
-        fields = ['id', 'quantity', 'product', 'price_total']
-
-    def get_price_total(self, obj):
-        total = obj.quantity * obj.product.price
-        return total
-    
-class NewCartItemSerializer(serializers.ModelSerializer):
-    product = ProductSerializer(read_only=True)
-    order_id = serializers.SerializerMethodField()
-    order_date = serializers.SerializerMethodField()
-    class Meta:
-        model = CartItem
-        fields = ['id', 'quantity', 'product', 'order_id', 'order_date']
-
-    def get_order_id(self, obj):
-        order_id = obj.cart.cart_code
-        return order_id
-    
-    def get_order_date(self, obj):
-        order_date = obj.cart.modified_at
-        return order_date
+        fields = ['id', 'product', 'quantity']
 
 
 class CartSerializer(serializers.ModelSerializer):
-    cartitem = CartItemSerializer(read_only=True, many=True)
-    total_item = serializers.SerializerMethodField()
-    total_price = serializers.SerializerMethodField()
+    total_items = serializers.IntegerField(source="get_total_items", read_only=True)
+    total_price = serializers.DecimalField(source="get_total_price", decimal_places=2, max_digits=10, read_only=True)
+    link = serializers.CharField(source="get_flutter_link", read_only=True)
+    cartitem = CartItemSerializer(read_only=True, many=True) 
     class Meta:
         model = Cart
-        fields = ['id', 'cartitem', 'total_item', 'total_price']
+        fields = ['id', 'cartitem', 'total_items', 'total_price', 'paid', 'link']
 
-    def get_total_item(self, obj):
-        cartitem = obj.cartitem.all()
-        total = sum([item.quantity for item in cartitem])
-        return total
-    
-    def get_total_price(self, obj):
-        cartitem = obj.cartitem.all()
-        total = sum([(item.quantity * item.product.price) for item in cartitem])
-        return total
 
-class UserSerializer(serializers.ModelSerializer):
-    item = serializers.SerializerMethodField()
-    class Meta:
-        model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'item']
-
-    def get_item(self, user):
-        cartitem = CartItem.objects.filter(cart__user=user, cart__paid=True)
-        serializer = NewCartItemSerializer(cartitem, many=True)
-        return serializer.data
-    
 class ShippingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Shipping
         fields = '__all__'
+
+class ShippingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Shipping
+        fields = ['id', 'name', 'phone', 'email', 'city', 'state', 'address', 'zip_code', 'country', 'selected', 'default']
+
+class ShipSerializer(serializers.ModelSerializer):
+    shippings = ShippingSerializer(many=True, read_only=True)
+    class Meta:
+        model = Ship
+        fields = ['id', 'shippings']
 
 class CountrySerializer(serializers.ModelSerializer):
     class Meta:

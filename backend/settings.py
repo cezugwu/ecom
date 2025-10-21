@@ -181,7 +181,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = 'static/'
-MEDI_URL = '/media/'
+MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Default primary key field type
@@ -194,22 +194,13 @@ CORS_ALLOW_ALL_ORIGINS = True
 DEBUG = os.environ.get("DEBUG", "False").lower() == True
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split()
 
-SECRET_KEY = os.environ.get(
-    "SECRET_KEY",
-    "django-insecure-6t#jk&87j@92$*ts&b-mjw&$8!5qrczyr)u*jv+qm)&sj6_5y6"
-)
-
-FLUTTER_SECRET_KEY = 'FLWSECK_TEST-701d000946a2e1458101c3c3fd665b4f-X'
+SECRET_KEY = os.environ.get("SECRET_KEY","django-insecure-6t#jk&87j@92$*ts&b-mjw&$8!5qrczyr)u*jv+qm)&sj6_5y6")
+FLUTTER_SECRET_KEY = os.environ.get("FLUTTER_SECRET_KEY", "FLWSECK_TEST-701d000946a2e1458101c3c3fd665b4f-X")
+#FLUTTER_SECRET_KEY = 'FLWSECK_TEST-701d000946a2e1458101c3c3fd665b4f-X'
 
 PAYSTACK_SECRET_KEY = 'sk_test_56d554a2402c9bbccaf49c0c1c1a8ae90dd85820'
 
-
+ 
 import cloudinary
 
-cloudinary.config(
-
-    cloud_name = "djim0s6vb",
-    api_key = "311248826825189",
-    api_secret = "oetTOe5ONGlQgAKPBZzSBjJa8X4",
-
-)
+cloudinary.config(cloud_name = "djim0s6vb",api_key = "311248826825189",api_secret = "oetTOe5ONGlQgAKPBZzSBjJa8X4",)
