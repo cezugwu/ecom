@@ -337,7 +337,7 @@ def flutter(request):
 
     tx_ref = str(uuid.uuid4())
     currency = 'NGN'
-    redirect_url = 'http://localhost:3000#/pending'
+    redirect_url = 'https://cezugwu.github.io/zentro/#/pending'
     tax = Decimal('4.00')
 
     # ✅ Get or create cart

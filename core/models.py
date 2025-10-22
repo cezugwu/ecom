@@ -65,6 +65,7 @@ class CartItem(models.Model):
 
     class Meta:
         unique_together = ('cart', 'product')
+        ordering = ['-created_at']
 
     @property
     def get_price(self):
