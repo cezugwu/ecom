@@ -41,6 +41,7 @@ class Cart(models.Model):
     session_id = models.CharField(max_length=255, null=True, blank=True)
     paid = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def get_total_items(self):
         total_quantity = sum(item.quantity for item in self.cartitem.all())
@@ -55,7 +56,7 @@ class Cart(models.Model):
         return transaction.link if transaction else None
     
     def __str__(self):
-            return f"username:{self.user.username}" if self.user else f"session_id: {self.session_id}" 
+            return f"username:{self.user.username} - cart:{self.id}" if self.user else f"session_id: {self.session_id} - cart:{self.id}" 
 
 class CartItem(models.Model):
     cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='cartitem')
@@ -192,9 +193,7 @@ class Country(models.Model):
         return self.country
 
 class Order(models.Model):
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
-    session_id = models.CharField(max_length=255, null=True, blank=True)
-
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='orderitem', blank=True, null=True)
     # Buyer info
     full_name = models.CharField(max_length=255)
     email = models.CharField(max_length=255)

@@ -47,7 +47,7 @@ class CartSerializer(serializers.ModelSerializer):
     cartitem = CartItemSerializer(read_only=True, many=True) 
     class Meta:
         model = Cart
-        fields = ['id', 'cartitem', 'total_items', 'total_price', 'paid', 'link']
+        fields = ['id', 'cartitem', 'total_items', 'total_price', 'paid', 'link', 'updated_at']
 
 
 class ShippingSerializer(serializers.ModelSerializer):

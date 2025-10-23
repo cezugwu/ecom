@@ -144,7 +144,7 @@ import dj_database_url
 
 database_url = os.environ.get("DATABASE_URL")
 
-DATABASES['default'] = dj_database_url.parse(database_url)
+DATABASES['default'] = dj_database_url.parse("postgresql://ecommerce_09wg_user:C7PHWbg9UY890RiNPtVHRwcPHsOtBOwt@dpg-d3n3hd3uibrs73bfkfcg-a.oregon-postgres.render.com/ecommerce_09wg")
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
 
@@ -196,6 +196,8 @@ ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split()
 SECRET_KEY = os.environ.get("SECRET_KEY","django-insecure-6t#jk&87j@92$*ts&b-mjw&$8!5qrczyr)u*jv+qm)&sj6_5y6")
 FLUTTER_SECRET_KEY = os.environ.get("FLUTTER_SECRET_KEY", "FLWSECK_TEST-701d000946a2e1458101c3c3fd665b4f-X")
 #FLUTTER_SECRET_KEY = 'FLWSECK_TEST-701d000946a2e1458101c3c3fd665b4f-X'
+FLUTTER_HASH_SECRET  = os.environ.get("FLUTTER_HASH_SECRET", "flw_8xT93hsd9Yz")
+#FLUTTER_HASH_SECRET = "flw_8xT93hsd9Yz"
 
 PAYSTACK_SECRET_KEY = 'sk_test_56d554a2402c9bbccaf49c0c1c1a8ae90dd85820'
 

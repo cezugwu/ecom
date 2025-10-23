@@ -1,6 +1,7 @@
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.hashers import make_password
 from rest_framework.decorators import api_view, permission_classes
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import Product, Cart, CartItem, TransactionFlutter, TransactionPaystack, Shipping, Country, Ship, Order
@@ -181,6 +182,21 @@ def cartclear(request):
     
     return Response({'message':'all cartitem deleted'})
 
+@api_view(['GET'])
+def orderitem(request):
+    user = request.user if request.user.is_authenticated else None
+    session_id = request.GET.get('session_id')
+
+    if user:
+        cart = Cart.objects.filter(user=user, session_id=None, paid=True)
+    else:
+        if not session_id:
+            return Response({'message': 'session_id is not provided'})
+        cart = Cart.objects.filter(user=None, session_id=session_id, paid=True)
+    
+    serializer = CartSerializer(cart, many=True)
+    return Response(serializer.data)
+
 
 @api_view(['GET'])
 def ship(request):
@@ -240,7 +256,6 @@ def shippingid(request):
 
     serializer = ShippingSerializer(shipping)
     return Response(serializer.data, status=200)
-
 
 @api_view(['POST'])
 def shipping(request):
@@ -330,6 +345,7 @@ def shippingtrue(request):
     serializer = ShippingSerializer(shipping)
     return Response(serializer.data, status=200)
 
+
 @api_view(['POST'])
 def flutter(request):
     user = request.user if request.user.is_authenticated else None
@@ -337,10 +353,9 @@ def flutter(request):
 
     tx_ref = str(uuid.uuid4())
     currency = 'NGN'
-    redirect_url = 'https://cezugwu.github.io/zentro/#/pending'
+    redirect_url = 'http://localhost:3000/zentro/#/pending'
     tax = Decimal('4.00')
 
-    # ✅ Get or create cart
     if user:
         cart, _ = Cart.objects.get_or_create(user=user, session_id=None, paid=False)
         ship, _ = Ship.objects.get_or_create(user=user, session_id=None)
@@ -350,11 +365,9 @@ def flutter(request):
         cart, _ = Cart.objects.get_or_create(user=None, session_id=session_id, paid=False)
         ship, _ = Ship.objects.get_or_create(user=None, session_id=session_id)
 
-    # ✅ Calculate total
     amount = sum([(item.quantity * item.product.price) for item in cart.cartitem.all()])
     total_amount = amount + tax
 
-    # ✅ Create transaction record
     shipping = Shipping.objects.get(ship=ship, selected=True)
     
     customer = {}
@@ -405,52 +418,40 @@ def flutter(request):
     else:
         return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(['POST'])
-def fluttercall(request):
-    tx_ref = request.data.get('tx_ref')
-    transaction_id = request.data.get('transaction_id')
-    payment_status = request.data.get('status')
 
-    # ✅ Quick validation
-    if not all([tx_ref, transaction_id, payment_status]):
-        return Response({'message': 'Missing required fields'}, status=status.HTTP_400_BAD_REQUEST)
-
-    if payment_status != 'completed':
-        return Response({'message': 'Payment not completed'}, status=status.HTTP_400_BAD_REQUEST)
-
-    # ✅ Verify payment from Flutterwave
+# ✅ SHARED FUNCTION: verify payment and create order
+def verify_and_create_order(tx_ref, transaction_id):
     headers = {'Authorization': f'Bearer {settings.FLUTTER_SECRET_KEY}'}
     verify_url = f'https://api.flutterwave.com/v3/transactions/{transaction_id}/verify'
 
     try:
-        response = requests.get(verify_url, headers=headers, timeout=10)
+        response = requests.get(verify_url, headers=headers)
         data = response.json()
-    except requests.RequestException as e:
-        return Response({'message': f'Network error: {e}'}, status=status.HTTP_502_BAD_GATEWAY)
+    except requests.RequestException:
+        return {'ok': False, 'message': 'Network error contacting Flutterwave'}
 
-    # ✅ Check Flutterwave response
     if data.get('status') != 'success':
-        return Response({'message': 'Failed to verify transaction with Flutterwave'}, status=status.HTTP_400_BAD_REQUEST)
+        return {'ok': False, 'message': 'Failed to verify with Flutterwave'}
 
     transaction_data = data.get('data', {})
     transaction = get_object_or_404(TransactionFlutter, tx_ref=tx_ref)
 
-    # ✅ Validate payment details
     if (
         transaction_data.get('status') == 'successful' and
         float(transaction_data.get('amount', 0)) == float(transaction.amount) and
         transaction_data.get('currency') == transaction.currency
     ):
-        # Mark transaction as completed
+        # ✅ Update transaction
         transaction.status = 'completed'
         transaction.transaction_id = transaction_id
         transaction.save(update_fields=['status', 'transaction_id'])
 
+        # ✅ Update cart
         cart = transaction.cart
         cart.paid = True
         cart.save(update_fields=['paid'])
 
-        # ✅ Fetch the selected shipping info
+        # ✅ Get shipping info
         if cart.user:
             ship = Ship.objects.filter(user=cart.user).first()
         else:
@@ -458,23 +459,27 @@ def fluttercall(request):
 
         shipping = Shipping.objects.filter(ship=ship, selected=True).first()
 
-        # ✅ Prepare products data
+        # ✅ Gather product data
         products = [
             {
                 "id": item.product.id,
                 "name": item.product.title,
                 "price": float(item.product.price),
                 "quantity": item.quantity,
+                "image": (
+                    item.product.image.url 
+                    if hasattr(item.product, "image") and item.product.image 
+                    else f"{settings.STATIC_URL}default.jpg"
+                ),
             }
             for item in cart.cartitem.all()
         ]
 
-        # ✅ Create the Order record
+        # ✅ Create order (if not already)
         order, created = Order.objects.get_or_create(
             tx_ref=tx_ref,
+            cart=cart,
             defaults={
-                'user': cart.user,
-                'session_id': cart.session_id,
                 'full_name': shipping.name,
                 'email': shipping.email,
                 'phone': shipping.phone,
@@ -490,23 +495,39 @@ def fluttercall(request):
             }
         )
 
-        if not created:
-            return Response({
-                'message': 'Order already exists',
-                'submessage': 'This payment has already been processed.'
-            }, status=status.HTTP_200_OK)
+        if created:
+            return {'ok': True, 'message': 'Order created successfully'}
+        else:
+            return {'ok': True, 'message': 'Order already exists'}
+
+    return {'ok': False, 'message': 'Verification failed'}
 
 
 
-        return Response({
-            'message': 'Payment successful',
-            'submessage': 'Your order has been saved successfully.'
-        }, status=status.HTTP_200_OK)
+# ✅ 2️⃣ Webhook endpoint (auto verify even if user doesn’t visit page)
+@api_view(['POST'])
+@csrf_exempt
+def flutterwave_webhook(request):
+    secret_hash = settings.FLUTTER_HASH_SECRET  # from Flutterwave dashboard
+    signature = request.headers.get('verif-hash')
 
-    return Response({
-        'message': 'Payment verification failed',
-        'submessage': 'We could not verify your payment yet'
-    }, status=status.HTTP_400_BAD_REQUEST)
+    print(secret_hash, signature)
+
+    # ✅ Ensure request came from Flutterwave
+    if signature != secret_hash:
+        return Response({'message': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    data = request.data
+    tx_ref = data.get('txRef')
+    transaction_id = data.get('id')
+    status_ = data.get('status')
+
+    if status_ == 'successful':
+        result = verify_and_create_order(tx_ref, transaction_id)
+        if result['ok']:
+            return Response({'message': 'Order processed via webhook'}, status=status.HTTP_200_OK)
+
+    return Response({'message': 'Webhook received'}, status=status.HTTP_200_OK)
 
 @api_view(['POST'])
 def paystack(request):

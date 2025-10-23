@@ -10,8 +10,9 @@ urlpatterns = [
     path('delete/', views.cartdelete, name='cartdelete'),
     path('clear/', views.cartclear, name='cartclear'),
 
-    path('signup/', views.signup),
+    path('order/', views.orderitem, name='orderitem'),
 
+    path('signup/', views.signup),
 
     path('shippingid/', views.shippingid, name='shippingid'),
     path('shippingtrue/', views.shippingtrue, name='shippingtrue'),
@@ -21,7 +22,7 @@ urlpatterns = [
     path('shipping/', views.shipping, name='shipping'),
 
     path('flutter/', views.flutter),
-    path('fluttercall/', views.fluttercall),
+    path('flutterwave/webhook/', views.flutterwave_webhook, name='flutterwave_webhook'),
     path('paystack/', views.paystack),
     path('vpaystack/',views.vpaystack),
 ]
