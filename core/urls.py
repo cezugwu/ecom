@@ -21,8 +21,9 @@ urlpatterns = [
     path('ship/', views.ship, name='ship'),
     path('shipping/', views.shipping, name='shipping'),
 
-    path('flutter/', views.flutter),
-    path('flutterwave/webhook/', views.flutterwave_webhook, name='flutterwave_webhook'),
+    path('flutter/', views.flutter, name='flutter'),
+    path('fluttercall/', views.fluttercall, name='fluttercall'),
+    #path('flutterwave/webhook/', views.flutterwave_webhook, name='flutterwave_webhook'),
     path('paystack/', views.paystack),
     path('vpaystack/',views.vpaystack),
 ]

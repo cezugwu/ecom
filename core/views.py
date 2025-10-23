@@ -425,7 +425,7 @@ def verify_and_create_order(tx_ref, transaction_id):
     verify_url = f'https://api.flutterwave.com/v3/transactions/{transaction_id}/verify'
 
     try:
-        response = requests.get(verify_url, headers=headers)
+        response = requests.get(verify_url, headers=headers, timeout=10)
         data = response.json()
     except requests.RequestException:
         return {'ok': False, 'message': 'Network error contacting Flutterwave'}
@@ -502,7 +502,24 @@ def verify_and_create_order(tx_ref, transaction_id):
 
     return {'ok': False, 'message': 'Verification failed'}
 
+@api_view(['POST'])
+def fluttercall(request):
+    tx_ref = request.data.get('tx_ref')
+    transaction_id = request.data.get('transaction_id')
+    payment_status = request.data.get('status')
 
+    if not all([tx_ref, transaction_id, payment_status]):
+        return Response({'message': 'Missing required fields'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if payment_status != 'completed':
+        return Response({'message': 'Payment not completed'}, status=status.HTTP_400_BAD_REQUEST)
+
+    result = verify_and_create_order(tx_ref, transaction_id)
+
+    if result['ok']:
+        return Response({'message': result['message']}, status=status.HTTP_200_OK)
+    else:
+        return Response({'message': result['message']}, status=status.HTTP_400_BAD_REQUEST)
 
 # ✅ 2️⃣ Webhook endpoint (auto verify even if user doesn’t visit page)
 @api_view(['POST'])
@@ -510,8 +527,6 @@ def verify_and_create_order(tx_ref, transaction_id):
 def flutterwave_webhook(request):
     secret_hash = settings.FLUTTER_HASH_SECRET  # from Flutterwave dashboard
     signature = request.headers.get('verif-hash')
-
-    print(secret_hash, signature)
 
     # ✅ Ensure request came from Flutterwave
     if signature != secret_hash:
@@ -528,6 +543,7 @@ def flutterwave_webhook(request):
             return Response({'message': 'Order processed via webhook'}, status=status.HTTP_200_OK)
 
     return Response({'message': 'Webhook received'}, status=status.HTTP_200_OK)
+
 
 @api_view(['POST'])
 def paystack(request):
