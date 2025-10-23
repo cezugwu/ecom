@@ -353,7 +353,7 @@ def flutter(request):
 
     tx_ref = str(uuid.uuid4())
     currency = 'NGN'
-    redirect_url = 'http://localhost:3000/zentro/#/pending'
+    redirect_url = 'https://cezugwu.github.io/zentro/#/pending'
     tax = Decimal('4.00')
 
     if user:
@@ -389,7 +389,6 @@ def flutter(request):
         'Authorization': f'Bearer {settings.FLUTTER_SECRET_KEY}',
         'Content-Type': 'application/json',
     }
-    print('what')
 
     try:
         response = requests.post(
